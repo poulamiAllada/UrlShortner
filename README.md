@@ -1,103 +1,180 @@
-🚀 URL Shortener – Scalable Backend System
-  A production-style URL shortening service built with Node.js, PostgreSQL, and Redis, designed with scalability, performance, and system design principles in mind.
+# 🚀 URL Shortener — Scalable Backend System
 
-🧠 Overview
-  This project demonstrates how to design a read-heavy backend system similar to services like TinyURL or Bitly.
+A production-style URL shortening service built with **Node.js**, **PostgreSQL**, and **Redis**, designed with scalability, performance, and system design principles in mind.
 
-It focuses on:
-  efficient URL mapping
-  low-latency redirects
-  handling concurrent requests
-  optimizing database load using caching
-🏗️ Architecture
-  Client
-     ↓
-  API Layer (Express)
-     ↓
-  Service Layer
-     ↓
-  Cache (Redis) → Database (PostgreSQL)
-⚙️ Features
-  🔗 URL Shortening
-      Generates unique short codes using Base62 encoding
-  Ensures idempotency (same URL → same short link)
-    ⚡ Fast Redirects
-  Cache-first lookup using Redis
-    Falls back to DB on cache miss
-  🧠 Caching Strategy
-    Cache-aside pattern (GET requests)
-  Write-through caching (POST requests)
-    TTL-based expiration (1 hour)
- 🚦 Rate Limiting
-    Implemented using Redis
-    Prevents abuse by limiting requests per IP
- 🛡️ Concurrency Handling
-    Uses DB-level uniqueness constraints
-    Handles race conditions with ON CONFLICT
-🧩 Tech Stack
-  Backend: Node.js, Express
-  Database: PostgreSQL (Neon)
-  Cache: Redis (Upstash)
-  Language: JavaScript
-📁 Project Structure
-  src/
-    config/        # DB & Redis connections
-    controllers/   # API handlers
-    routes/        # Route definitions
-    services/      # Business logic
-    utils/         # Helpers (rate limiter, etc.)
-  
-  app.js           # Express app setup
-  server.js        # Server entry point
-🔄 API Endpoints
-  ➤ Create Short URL
-      POST /api/url/shorten
-      
-      Body:      
-      {
-        "url": "https://example.com"
-      }
-  ➤ Redirect to Original URL
-      GET /api/url/:code
-⚡ Performance Optimizations
-  Reduced DB reads using Redis caching
-  Fast O(1) lookups for redirects
-  Connection pooling for database
-📊 Scalability Considerations
-  Potential Bottlenecks
-  Database under high read load
-  cache eviction strategy
-Improvements (Future Work)
-  Redis LRU eviction tuning
-  DB read replicas
-  distributed ID generation (e.g., Snowflake)
-  analytics (click tracking)
-⚖️ Design Tradeoffs
-  Decision	Reason
-  Base62 encoding	compact and URL-friendly
-  TTL caching	balances freshness vs performance
-  Write-through caching	ensures cache consistency
-  DB constraints	ensures uniqueness under concurrency
-❗ Failure Handling
-  Redis failure → fallback to DB
-  Duplicate requests → handled via DB constraints
-  Cache misses → auto-repopulate
-🛠️ Setup & Run
-  1. Clone repo
-    git clone <repo-url>
-    cd <project>
-  2. Install dependencies
-    npm install
-  3. Setup environment variables
-    Create .env file:
-    DATABASE_URL=
-    REDIS_URL=
-    REDIS_TOKEN=
-    SHORT_URL=http://localhost:3000
-  4. Run server
-    npm start
-🧠 Key Learnings
-  Designing cache-first systems
-  Handling race conditions in distributed systems
-  Optimizing read-heavy workloads
-  Understanding tradeoffs in system design
+---
+
+## 🧠 Overview
+
+This project demonstrates how to design a read-heavy backend system similar to TinyURL or Bitly. It focuses on:
+- Efficient URL mapping with Base62 encoding
+- Low-latency redirects via Redis caching
+- Handling concurrent requests with atomic DB operations
+- Resilient architecture where Redis failures never break core functionality
+
+---
+
+## 🏗️ Architecture
+
+```
+Client
+  ↓
+API Layer (Express)
+  ↓
+Controller (validation + rate limiting)
+  ↓
+Service Layer (business logic)
+  ↓
+Cache (Redis) → Database (PostgreSQL)
+```
+
+---
+
+## ⚙️ Features
+
+- 🔗 **URL Shortening** — Base62 encoding over auto-incremented IDs (same approach as TinyURL)
+- ✅ **Idempotency** — same long URL always returns the same short code (atomic upsert)
+- ⚡ **Fast Redirects** — cache-first lookup via Redis, falls back to PostgreSQL on miss
+- 🧠 **Caching Strategy** — cache-aside (GET) + write-through (POST) with 1hr TTL
+- 🚦 **Rate Limiting** — Redis-based, 100 req/min per IP, fails open if Redis is down
+- 🛡️ **Input Validation** — rejects missing, malformed, or oversized URLs (>2048 chars)
+- 🔁 **302 Redirects** — explicit temporary redirect to preserve future analytics capability
+- 💥 **Centralized Error Handling** — single Express error middleware, no unhandled rejections
+- 🩺 **Health Check** — `GET /health` endpoint for load balancer probes
+- 🧪 **Tests** — unit tests (Base62) + integration tests (all routes) with mocked dependencies
+
+---
+
+## 🧩 Tech Stack
+
+| Layer       | Technology                  |
+|-------------|-----------------------------|
+| Backend     | Node.js, Express 5          |
+| Database    | PostgreSQL (Neon for prod)  |
+| Cache       | Redis (Upstash for prod)    |
+| Testing     | Jest, Supertest             |
+
+---
+
+## 📁 Project Structure
+
+```
+src/
+  config/         # DB (pg Pool) & Redis connections
+  controllers/    # HTTP handlers — validation, rate limiting, error forwarding
+  routes/         # Route definitions
+  services/       # Business logic — URL creation, lookup, Base62 encoding
+  utils/          # Rate limiter
+  tests/          # Unit + integration tests
+
+app.js            # Express setup, middleware, error handler
+server.js         # Entry point — dotenv loaded here first
+```
+
+---
+
+## 🔄 API Endpoints
+
+### `POST /api/url/shorten`
+Create a short URL.
+
+**Request body:**
+```json
+{ "url": "https://example.com/some/very/long/path" }
+```
+
+**Response `201`:**
+```json
+{ "shortUrl": "http://localhost:3000/api/url/2Bi0j" }
+```
+
+**Errors:** `400` (missing/invalid URL), `429` (rate limited), `500` (server error)
+
+---
+
+### `GET /api/url/:code`
+Redirect to the original URL.
+
+**Response:** `302` redirect to original URL
+
+**Errors:** `404` (code not found), `500` (server error)
+
+---
+
+### `GET /health`
+Health check for load balancers and uptime monitors.
+
+**Response `200`:**
+```json
+{ "status": "ok", "timestamp": "2026-04-22T10:00:00.000Z" }
+```
+
+---
+
+## 🛠️ Setup & Run
+
+```bash
+git clone <repo-url>
+cd urlshortner
+npm install
+
+# Create .env from the example
+cp .env.example .env
+# Fill in your DATABASE_URL, REDIS_URL, REDIS_TOKEN, SHORT_URL, PORT
+
+npm start
+```
+
+### Run tests
+```bash
+npm test
+```
+
+---
+
+## ⚡ Performance Design
+
+| Technique            | Impact                                      |
+|----------------------|---------------------------------------------|
+| Redis cache-aside    | ~1ms redirect vs ~10ms DB query             |
+| Write-through cache  | Cache is warm immediately after creation    |
+| Connection pooling   | Reuses up to 10 DB connections (no overhead per request) |
+| Atomic upsert        | 1 DB round-trip for create vs. the previous 2–3 |
+
+---
+
+## 📊 Scalability Considerations
+
+**Current bottlenecks:**
+- Single DB writer (scale with read replicas for GET-heavy load)
+- Redis single node (scale with Redis Cluster)
+
+**Future improvements:**
+- Redis LRU eviction tuning (`maxmemory-policy allkeys-lru`)
+- DB read replicas for redirect queries
+- Distributed ID generation (Snowflake IDs) to avoid sequential ID guessing
+- Click analytics (count, referrer, geo, device)
+- Custom short codes / vanity URLs
+- URL expiry (per-URL TTL)
+
+---
+
+## ⚖️ Design Tradeoffs
+
+| Decision | Reason |
+|---|---|
+| Base62 over UUID | Shorter, URL-safe codes |
+| 302 over 301 | Preserves analytics; 301 is cached by browsers permanently |
+| Fail-open rate limiter | Redis outage should not take down the service |
+| Atomic upsert (DO UPDATE) | Prevents corrupted rows from a crash between INSERT and UPDATE |
+| TTL caching | Balances freshness vs. DB load |
+
+---
+
+## 🧠 Key Learnings
+
+- Designing cache-first systems with graceful Redis fallback
+- Preventing race conditions with atomic DB upserts
+- Why 302 vs 301 matters for read-heavy redirect services
+- Input validation as the first line of defence in API design
+- Centralized error handling to prevent unhandled promise rejections
